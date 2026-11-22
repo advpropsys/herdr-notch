@@ -34,8 +34,9 @@ This is an unofficial companion app. It is not made by or affiliated with the He
 - helper agents as thinner lanes under the agent that started them
 - sorted by what cost you the most: agents waiting on you first, longest wait on top
 
-The screenshots are drawn offscreen with invented data (`--render --demo`), so they show a flat backdrop where the
-running app shows frosted glass.
+The screenshots are composites, not screen captures. What is written on the panels is drawn by the app itself
+with invented data (`--render --demo`); the frosted glass, wallpaper and notch around it are illustrated, because
+the app's live blur cannot be captured offscreen.
 
 ## Requirements
 
