@@ -40,15 +40,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let t = Timer(timeInterval: 1.0 / 40, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(t, forMode: .common)
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.layoutForScreen()
-            self.panel.contentView = NSHostingView(rootView: RootView(store: self.store, geo: self.geo))
-            self.panel.setFrame(self.windowLarge ? self.largeFrame : self.smallFrame, display: true)
+            self?.relayout()
         }
     }
 
+    func relayout() {
+        layoutForScreen()
+        panel.contentView = NSHostingView(rootView: RootView(store: store, geo: geo))
+        panel.setFrame(windowLarge ? largeFrame : smallFrame, display: true)
+    }
+
+    func screenUnderPointer() -> NSScreen? {
+        NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }
+    }
+
     func layoutForScreen() {
-        screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens[0]
+        // The screen the pointer is on, so the notch follows you between displays; the primary display as a fallback.
+        screen = screenUnderPointer() ?? NSScreen.screens[0]
         let top = screen.safeAreaInsets.top
         if top > 0, let l = screen.auxiliaryTopLeftArea, let r = screen.auxiliaryTopRightArea {
             geo = Geometry(notchWidth: screen.frame.width - l.width - r.width, notchHeight: top)
@@ -118,6 +126,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panel.setFrame(smallFrame, display: true)
             }
         }
+
+        // Fully closed and the pointer is on another display: move the notch there.
+        if !windowLarge, let s = screenUnderPointer(), s.frame != screen.frame { relayout(); return }
 
         if !notch.contains(m) { armed = true; enteredAt = nil; return }
         guard armed, NSEvent.pressedMouseButtons == 0 else { return }
