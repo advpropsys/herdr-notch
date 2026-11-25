@@ -94,10 +94,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if pinned { return }
             // Includes the strip between the notch and the floating panel, so the pointer can travel down into it.
             let body = topRect(width: store.panelWidth, height: geo.detach + store.panelHeight(geo))
-            let onCard = store.hoveredID != nil && cardRect.insetBy(dx: -6, dy: -10).contains(m)
+            let hasCard = store.hoveredID != nil
+            let onCard = hasCard && cardRect.insetBy(dx: -6, dy: -10).contains(m)
             let inside = body.insetBy(dx: -14, dy: -14).contains(m) || onCard
-            // Clicks outside the drawn shapes go to whatever is underneath.
-            panel.ignoresMouseEvents = !(body.contains(m) || onCard)
+            // Clicks outside the drawn shapes go to whatever is underneath, including the empty strip above the
+            // panel: it keeps the panel open on the way down, but it covers the menu bar.
+            let drawn = NSRect(x: body.minX, y: body.minY, width: body.width, height: body.height - geo.detach)
+            panel.ignoresMouseEvents = !(drawn.contains(m) || (hasCard && cardRect.contains(m)))
             if inside || NSEvent.pressedMouseButtons != 0 { leftAt = nil; return }
             if leftAt == nil { leftAt = Date() }
             if Date().timeIntervalSince(leftAt!) > 0.28 { leftAt = nil; store.expanded = false }
