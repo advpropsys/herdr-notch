@@ -40,15 +40,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let t = Timer(timeInterval: 1.0 / 40, repeats: true) { [weak self] _ in self?.tick() }
         RunLoop.main.add(t, forMode: .common)
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.layoutForScreen()
-            self.panel.contentView = NSHostingView(rootView: RootView(store: self.store, geo: self.geo))
-            self.panel.setFrame(self.windowLarge ? self.largeFrame : self.smallFrame, display: true)
+            self?.relayout()
         }
     }
 
+    func relayout() {
+        layoutForScreen()
+        panel.contentView = NSHostingView(rootView: RootView(store: store, geo: geo))
+        panel.setFrame(windowLarge ? largeFrame : smallFrame, display: true)
+    }
+
+    func screenUnderPointer() -> NSScreen? {
+        NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }
+    }
+
     func layoutForScreen() {
-        screen = NSScreen.screens.first { $0.safeAreaInsets.top > 0 } ?? NSScreen.main ?? NSScreen.screens[0]
+        // The screen the pointer is on, so the notch follows you between displays; the primary display as a fallback.
+        screen = screenUnderPointer() ?? NSScreen.screens[0]
         let top = screen.safeAreaInsets.top
         if top > 0, let l = screen.auxiliaryTopLeftArea, let r = screen.auxiliaryTopRightArea {
             geo = Geometry(notchWidth: screen.frame.width - l.width - r.width, notchHeight: top)
@@ -94,10 +102,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if pinned { return }
             // Includes the strip between the notch and the floating panel, so the pointer can travel down into it.
             let body = topRect(width: store.panelWidth, height: geo.detach + store.panelHeight(geo))
-            let onCard = store.hoveredID != nil && cardRect.insetBy(dx: -6, dy: -10).contains(m)
+            let hasCard = store.hoveredID != nil
+            let onCard = hasCard && cardRect.insetBy(dx: -6, dy: -10).contains(m)
             let inside = body.insetBy(dx: -14, dy: -14).contains(m) || onCard
-            // Clicks outside the drawn shapes go to whatever is underneath.
-            panel.ignoresMouseEvents = !(body.contains(m) || onCard)
+            // Clicks outside the drawn shapes go to whatever is underneath, including the empty strip above the
+            // panel: it keeps the panel open on the way down, but it covers the menu bar.
+            let drawn = NSRect(x: body.minX, y: body.minY, width: body.width, height: body.height - geo.detach)
+            panel.ignoresMouseEvents = !(drawn.contains(m) || (hasCard && cardRect.contains(m)))
             if inside || NSEvent.pressedMouseButtons != 0 { leftAt = nil; return }
             if leftAt == nil { leftAt = Date() }
             if Date().timeIntervalSince(leftAt!) > 0.28 { leftAt = nil; store.expanded = false }
@@ -115,6 +126,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 panel.setFrame(smallFrame, display: true)
             }
         }
+
+        // Fully closed and the pointer is on another display: move the notch there.
+        if !windowLarge, let s = screenUnderPointer(), s.frame != screen.frame { relayout(); return }
 
         if !notch.contains(m) { armed = true; enteredAt = nil; return }
         guard armed, NSEvent.pressedMouseButtons == 0 else { return }
