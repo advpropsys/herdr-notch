@@ -36,9 +36,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.contentView = NSHostingView(rootView: RootView(store: store, geo: geo))
         panel.orderFrontRegardless()
         store.start()
+        // The pointer is checked 40 times a second only while it is on the notch or the panel is open or closing.
+        // The rest of the time the timer is off, and any pointer movement onto the notch turns it back on.
+        let moves: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+        NSEvent.addGlobalMonitorForEvents(matching: moves) { [weak self] _ in self?.pointerMoved() }
+        NSEvent.addLocalMonitorForEvents(matching: moves) { [weak self] e in self?.pointerMoved(); return e }
+        wake()
         if pinned { open() }
-        let t = Timer(timeInterval: 1.0 / 40, repeats: true) { [weak self] _ in self?.tick() }
-        RunLoop.main.add(t, forMode: .common)
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.layoutForScreen()
@@ -75,7 +79,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                width: Geometry.cardGap + Geometry.cardWidth, height: store.cardHeight)
     }
 
+    var timer: Timer?
+
+    /// The hardware notch and its two counters, where the pointer opens the panel.
+    var notchRect: NSRect {
+        topRect(width: geo.closedWidth(ear: store.hasEars ? store.earWidth : 0), height: geo.notchHeight)
+    }
+
+    func wake() {
+        guard timer == nil else { return }
+        let t = Timer(timeInterval: 1.0 / 40, repeats: true) { [weak self] _ in self?.tick() }
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    func rest() { timer?.invalidate(); timer = nil }
+
+    func pointerMoved() {
+        if timer == nil, notchRect.contains(NSEvent.mouseLocation) { wake() }
+    }
+
     func open() {
+        wake()
         closedAt = nil; leftAt = nil
         store.announcement = nil
         windowLarge = true
@@ -88,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func tick() {
         let m = NSEvent.mouseLocation
-        let notch = topRect(width: geo.closedWidth(ear: store.hasEars ? store.earWidth : 0), height: geo.notchHeight)
+        let notch = notchRect
 
         if store.expanded {
             if pinned { return }
@@ -116,7 +141,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
 
-        if !notch.contains(m) { armed = true; enteredAt = nil; return }
+        if !notch.contains(m) {
+            armed = true; enteredAt = nil
+            if !windowLarge { rest() }         // closed and the pointer is elsewhere: nothing to watch until it moves back
+            return
+        }
         guard armed, NSEvent.pressedMouseButtons == 0 else { return }
         if enteredAt == nil { enteredAt = Date() }
         if Date().timeIntervalSince(enteredAt!) > 0.07 { enteredAt = nil; open() }   // a short dwell, so passing over doesn't open it

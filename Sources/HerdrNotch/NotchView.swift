@@ -34,11 +34,48 @@ struct NotchShape: InsettableShape {
 }
 
 /// One status mark: a turning ring while working, a breathing dot when it needs you, a plain dot otherwise.
+///
+/// `stepped` is for the closed notch. It stays on screen all day over a live behind-window blur, and every frame
+/// it draws makes the window server redo that blur. Smooth motion there kept WindowServer busy at 60 frames a second
+/// for as long as any agent was working. Stepped marks move a notch twice a second instead, all on the same beat,
+/// so the whole closed notch redraws twice a second at most.
 struct Mark: View {
     let state: AgentState
     var size: CGFloat = 8
+    var stepped = false
     @State private var on = false
+
+    static let beat: TimeInterval = 0.5
+    private static let origin = Date(timeIntervalSinceReferenceDate: 0)   // shared, so every mark steps together
+
     var body: some View {
+        Group {
+            if stepped && !Motion.reduced && (state == .working || state == .blocked) {
+                TimelineView(.periodic(from: Self.origin, by: Self.beat)) { context in
+                    step(Int(context.date.timeIntervalSince(Self.origin) / Self.beat))
+                }
+            } else {
+                smooth
+            }
+        }
+        .frame(width: size, height: size)
+        .onAppear { on = true }
+        .accessibilityLabel(state.label)
+    }
+
+    /// The ring turns an eighth each beat, a full turn every four seconds; the halo shows on every other beat.
+    @ViewBuilder func step(_ n: Int) -> some View {
+        if state == .working {
+            Circle().trim(from: 0.12, to: 0.82)
+                .stroke(state.color, style: StrokeStyle(lineWidth: max(1.4, size * 0.2), lineCap: .round))
+                .rotationEffect(.degrees(Double(n % 8) * 45))
+        } else {
+            Circle().fill(state.color)
+                .overlay(Circle().stroke(state.color.opacity(0.55), lineWidth: 1.5).scaleEffect(1.7).opacity(n % 2 == 0 ? 1 : 0))
+        }
+    }
+
+    @ViewBuilder var smooth: some View {
         Group {
             switch state {
             case .working where !Motion.reduced:
@@ -56,9 +93,6 @@ struct Mark: View {
                 Circle().fill(state.color)
             }
         }
-        .frame(width: size, height: size)
-        .onAppear { on = true }
-        .accessibilityLabel(state.label)
     }
 }
 
@@ -68,7 +102,7 @@ struct Count: View {
     var detail: String? = nil
     var body: some View {
         HStack(spacing: 5) {
-            Mark(state: state, size: 8)
+            Mark(state: state, size: 8, stepped: true)
             Text("\(n)").font(.system(size: 12, weight: .semibold)).monospacedDigit().foregroundColor(Ink.primary)
                 .contentTransition(.numericText())
             if let detail, !detail.isEmpty {
@@ -160,7 +194,7 @@ struct RootView: View {
             .frame(height: geo.notchHeight)
             if let note {
                 HStack(spacing: 7) {
-                    Mark(state: note.state, size: 8)
+                    Mark(state: note.state, size: 8, stepped: true)
                     Text(note.text).font(.system(size: 12.5, weight: .medium)).foregroundColor(Ink.primary).lineLimit(1)
                 }
                 .padding(.horizontal, 14).frame(height: Geometry.announceHeight, alignment: .top).padding(.top, 2)
